@@ -3,10 +3,11 @@ import { tmpdir } from 'node:os';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { transformAsync, transformDirectives } from '@solidjs/compiler';
-import { createServer, type ViteDevServer } from 'vite';
+import { build, createServer, type ViteDevServer } from 'vite';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import solidPlugin, {
   type Frontend,
+  type FrontendBuildContext,
   type FrontendContext,
   type FrontendHotContext,
 } from './index.js';
@@ -55,12 +56,16 @@ const fe: Frontend = {
     const map = { ...JSON.parse(result.map!), sources: [context.id] };
     return { code: result.code, map, css: '.fe { color: red; }' };
   },
+  buildStart(context) {
+    buildCalls.push(context);
+  },
   hotUpdate(context) {
     hotCalls.push(context);
     return context.modules.filter((m) => m.id?.includes('?dep'));
   },
 };
 const hotCalls: FrontendHotContext[] = [];
+const buildCalls: FrontendBuildContext[] = [];
 
 beforeAll(async () => {
   root = await realpath(await mkdtemp(path.join(tmpdir(), 'solid-frontends-')));
@@ -129,6 +134,21 @@ describe('frontends', () => {
       // nothing resolves a package that is not installed
       expect(missing).toBeNull();
     }
+  });
+
+  it('starts a build in each front end, with its environment', async () => {
+    buildCalls.length = 0;
+    await build({
+      root,
+      configFile: false,
+      logLevel: 'silent',
+      cacheDir: path.join(root, '.vite-build'),
+      plugins: [solidPlugin({ frontends: { '.fe': fe } })],
+      build: { write: false, rollupOptions: { input: path.join(root, 'src/App.fe') } },
+    });
+    expect(
+      buildCalls.some((c) => c.environment === 'client' && c.root === root && c.watch === false),
+    ).toBe(true);
   });
 
   it('serves its stylesheet as a CSS module the module imports', async () => {

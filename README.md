@@ -1258,6 +1258,7 @@ interface Frontend {
       resolve?(source: string, importer?: string): Promise<string | null>; // as Vite resolves it
     },
   ): { code: string; map?: string | object | null; css?: string } | null;
+  buildStart?(context: { root: string; environment: string; watch: boolean }): void; // each build, each watch rebuild
 }
 ```
 

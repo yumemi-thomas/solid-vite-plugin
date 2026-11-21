@@ -340,6 +340,23 @@ export interface Frontend {
   hotUpdate?(
     context: FrontendHotContext,
   ): EnvironmentModuleNode[] | void | Promise<EnvironmentModuleNode[] | void>;
+  /**
+   * A build of one environment starts: each `vite build`, each rebuild of
+   * `vite build --watch`, and a dev server's start. A front end that does
+   * work once per build (a whole-project check, say) starts it again here.
+   * A front end not loaded yet (the built-in `.rx`) is not called: its
+   * first compile is the start of its first build.
+   */
+  buildStart?(context: FrontendBuildContext): void | Promise<void>;
+}
+
+export interface FrontendBuildContext {
+  /** Vite's resolved project root. */
+  root: string;
+  /** The environment being built (`client`, `ssr`, …). */
+  environment: string;
+  /** Whether Vite is watching, so builds follow one another. */
+  watch: boolean;
 }
 
 export interface FrontendHotContext {
@@ -1429,6 +1446,11 @@ function lazyFrontend(pkg: string, extension: string): Frontend {
     async hotUpdate(context) {
       const frontend = await loaded?.catch(() => undefined);
       return frontend?.hotUpdate?.(context);
+    },
+    // nothing compiled yet means no build of its own to start again
+    async buildStart(context) {
+      const frontend = await loaded?.catch(() => undefined);
+      return frontend?.buildStart?.(context);
     },
   };
 }
@@ -2531,7 +2553,15 @@ export default function solidPlugin(options: Partial<Options> = {}): Plugin[] {
       } as typeof hot.send;
     },
 
-    buildStart() {
+    async buildStart() {
+      // Front ends that work once per build start again (each environment, each watch rebuild).
+      for (const [, frontend] of frontends) {
+        await frontend.buildStart?.({
+          root: projectRoot,
+          environment: this.environment?.name ?? 'client',
+          watch: !!this.meta?.watchMode,
+        });
+      }
       // A host may rebuild the client with this instance (#525): emit lazy chunks again.
       if (isBuild && isClientBuild(this)) {
         emittedLazyChunks.clear();

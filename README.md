@@ -1255,6 +1255,7 @@ interface Frontend {
       root: string; // Vite's resolved root
       solid: SolidOptions; // what this plugin would pass @solidjs/compiler for a JSX module here
       addWatchFile(file: string): void; // recompile this module when `file` changes
+      resolve?(source: string, importer?: string): Promise<string | null>; // as Vite resolves it
     },
   ): { code: string; map?: string | object | null; css?: string } | null;
 }

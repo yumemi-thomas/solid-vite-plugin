@@ -27,6 +27,8 @@ function directivesTakeAnyExtension() {
 }
 let server: ViteDevServer;
 const calls: FrontendContext[] = [];
+// what each compile's `resolve` answered, by module and environment
+const resolved = new Map<string, (string | null)[]>();
 
 // A front end whose language is JSX under another extension: it lowers
 // through Solid's compiler with the options the plugin hands it, and returns
@@ -35,6 +37,15 @@ const fe: Frontend = {
   async compile(source, context) {
     calls.push(context);
     context.addWatchFile(path.join(root, 'src/shared.d.fe'));
+    if (context.resolve)
+      resolved.set(
+        `${context.id}\0${context.ssr}`,
+        await Promise.all([
+          context.resolve('@/actions.fe'),
+          context.resolve('./actions.fe?dep'),
+          context.resolve('no-such-package/x.fe'),
+        ]),
+      );
     const result = await transformAsync(source, {
       ...context.solid,
       filename: context.id + '.jsx',
@@ -78,6 +89,7 @@ beforeAll(async () => {
     server: { middlewareMode: true, hmr: false, watch: null },
     optimizeDeps: { noDiscovery: true, include: [] },
     environments: { client: {}, ssr: { consumer: 'server' } },
+    resolve: { alias: { '@': path.join(root, 'src') } },
     plugins: [solidPlugin({ ssr: true, serverFunctions: true, frontends: { '.fe': fe } })],
   });
 });
@@ -104,6 +116,19 @@ describe('frontends', () => {
     const context = calls.find((c) => c.id.endsWith('App.fe') && c.ssr);
     expect(context?.solid.generate).toBe('ssr');
     expect(context?.hot).toBe(false);
+  });
+
+  it('resolves an import as Vite does, aliases and queries included', async () => {
+    for (const env of ['client', 'ssr'] as const) {
+      await server.environments[env].transformRequest('/src/App.fe');
+      const [aliased, relative, missing] = resolved.get(
+        `${path.join(root, 'src/App.fe')}\0${env === 'ssr'}`,
+      )!;
+      expect(aliased).toBe(path.join(root, 'src/actions.fe'));
+      expect(relative).toBe(path.join(root, 'src/actions.fe') + '?dep');
+      // nothing resolves a package that is not installed
+      expect(missing).toBeNull();
+    }
   });
 
   it('serves its stylesheet as a CSS module the module imports', async () => {

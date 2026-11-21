@@ -377,6 +377,18 @@ export interface FrontendContext {
    */
   addWatchFile(file: string): void;
   /**
+   * Resolves an import as Vite would for this environment, through every
+   * plugin's `resolveId` (aliases, tsconfig paths, the project's own
+   * resolvers): the resolved module id, query included, or `null` when
+   * nothing resolves it or it is external. As with Vite's own resolution,
+   * an alias's target is returned whether or not a file is there.
+   * `importer` defaults to this module. A front end that reads other
+   * modules' imports (which files import one of its modules, say) names
+   * them as the bundler will. Unset where no resolver runs (the dependency
+   * scan, the stylesheet pass).
+   */
+  resolve?(source: string, importer?: string): Promise<string | null>;
+  /**
    * Whether this transform serves a dev client with hot updates on (the
    * refresh pass runs on the output): a front end whose modules the refresh
    * pass cannot swap may add its own `import.meta.hot` handling. Unset
@@ -3056,6 +3068,10 @@ export default manifest;`;
               projectRoot,
             ),
             addWatchFile: (file) => this.addWatchFile(file),
+            resolve: async (source, importer = id) => {
+              const resolved = await this.resolve(source, importer, { skipSelf: true });
+              return resolved && !resolved.external ? resolved.id : null;
+            },
             hot: needRefresh,
           });
           if (!result) return null;
